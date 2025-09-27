@@ -114,7 +114,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1CsvkMqNnxdUrmJZYeSXNZD
 
 ## 更新日志
 
-- 20250128
+- 20250927
 
   **核心功能优化与稳定性提升**
 
@@ -160,7 +160,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1CsvkMqNnxdUrmJZYeSXNZD
   
   ✅ 修复画布事件处理相关问题
 
-- 20250127
+- 20250926
 
   **重大优化更新 - 用户体验全面提升**
 
@@ -236,18 +236,18 @@ View your app in AI Studio: https://ai.studio/apps/drive/1CsvkMqNnxdUrmJZYeSXNZD
 ## 关于我 | About me
 
 📬 **联系我**：
-- 邮箱：zhozho3965@gmail.com
+- 邮箱：@gmail.com
   
 
 🔗 **社交媒体**：
-- 个人页：[-Zho-](https://jike.city/zho)
-- Bilibili：[我的B站主页](https://space.bilibili.com/484366804)
-- X（Twitter）：[我的Twitter](https://twitter.com/ZHO_ZHO_ZHO)
-- 小红书：[我的小红书主页](https://www.xiaohongshu.com/user/profile/63f11530000000001001e0c8?xhsshare=CopyLink&appuid=63f11530000000001001e0c8&apptime=1690528872)
+- 个人页：[-Zho-](     )
+- Bilibili：[B站主页](  )
+- X（Twitter）：[Twitter](  )
+- 小红书：[小红书主页](   )
 
 💡 **支持我**：
-- B站：[B站充电](https://space.bilibili.com/484366804)
-- 爱发电：[为我充电](https://afdian.com/a/ZHOZHO)
+- B站：[B站充电](   )
+- 爱发电：[为我充电](    )
 
 
 ## Credits
