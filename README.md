@@ -8,7 +8,7 @@
 
 <img width="1820" height="1024" alt="Group 343" src="https://github.com/hu675522/BananaPod/blob/c9508e6d3ebb19b742eb7e19f17fc9c9f26084c8/%E4%BC%98%E5%8C%96%E7%95%8C%E9%9D%A23.png" />
 
-# BananaPod ｜ 原作者：ZHO ｜ 二开作者：Hutongxue_168
+# 原作者：ZHO ｜ 二开作者：Hutongxue_168
 
 </div>
 
