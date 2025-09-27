@@ -31,19 +31,32 @@ const ToolButton: React.FC<{
     onClick: () => void;
     disabled?: boolean;
     className?: string;
-}> = ({ label, icon, isActive = false, onClick, disabled = false, className = '' }) => (
-    <button
-        onClick={onClick}
-        aria-label={label}
-        title={label}
-        disabled={disabled}
-        className={`p-2 rounded-md transition-colors duration-200 text-white ${
-            isActive ? 'bg-green-500' : 'hover:bg-white/20'
-        } disabled:text-white/40 disabled:hover:bg-transparent disabled:cursor-not-allowed ${className}`}
-    >
-        {icon}
-    </button>
-);
+}> = ({ label, icon, isActive = false, onClick, disabled = false, className = '' }) => {
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    
+    useEffect(() => {
+        if (buttonRef.current) {
+            buttonRef.current.title = label;
+        }
+    }, [label]);
+    
+    return (
+        <button
+            ref={buttonRef}
+            key={`tool-${label}`}
+            onClick={onClick}
+            aria-label={label}
+            title={label}
+            data-tooltip={label}
+            disabled={disabled}
+            className={`p-2 rounded-md transition-colors duration-200 text-white ${
+                isActive ? 'bg-green-500' : 'hover:bg-white/20'
+            } disabled:text-white/40 disabled:hover:bg-transparent disabled:cursor-not-allowed ${className}`}
+        >
+            {icon}
+        </button>
+    );
+};
 
 
 const ToolGroupButton: React.FC<{

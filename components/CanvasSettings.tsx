@@ -60,16 +60,16 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                     <label className="text-sm font-medium text-gray-300">{t('settings.language')}</label>
                     <div className="flex items-center gap-2 p-1 bg-black/20 rounded-md">
                         <button 
-                            onClick={() => setLanguage('en')}
-                            className={`flex-1 py-1.5 text-sm rounded ${language === 'en' ? 'bg-green-500 text-white' : 'hover:bg-white/10'}`}
-                        >
-                            English
-                        </button>
-                        <button 
                             onClick={() => setLanguage('zho')}
                             className={`flex-1 py-1.5 text-sm rounded ${language === 'zho' ? 'bg-green-500 text-white' : 'hover:bg-white/10'}`}
                         >
                             中文
+                        </button>
+                        <button 
+                            onClick={() => setLanguage('en')}
+                            className={`flex-1 py-1.5 text-sm rounded ${language === 'en' ? 'bg-green-500 text-white' : 'hover:bg-white/10'}`}
+                        >
+                            English
                         </button>
                     </div>
                 </div>

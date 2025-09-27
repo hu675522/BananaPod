@@ -1,7 +1,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Board } from '../types';
 import { translations } from '../translations';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface BoardPanelProps {
     isOpen: boolean;
@@ -28,9 +30,11 @@ const BoardItem: React.FC<{
     language: 'en' | 'zho';
     totalBoards: number;
 }> = ({ board, isActive, thumbnail, onClick, onRename, onDuplicate, onDelete, language, totalBoards }) => {
+    const { t } = useTranslation();
     const [isEditing, setIsEditing] = useState(false);
     const [name, setName] = useState(board.name);
     const [menuOpen, setMenuOpen] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -79,12 +83,21 @@ const BoardItem: React.FC<{
                 break;
             case 'delete':
                 if (totalBoards <= 1) {
-                    alert(translations[language].boards.cannotDeleteLast);
-                } else if (window.confirm(`${translations[language].boards.deleteConfirm} "${board.name}"?`)) {
-                    onDelete();
+                    alert(t('boards.cannotDeleteLast'));
+                } else {
+                    setShowDeleteConfirm(true);
                 }
                 break;
         }
+    };
+
+    const handleDeleteConfirm = () => {
+        setShowDeleteConfirm(false);
+        onDelete();
+    };
+
+    const handleDeleteCancel = () => {
+        setShowDeleteConfirm(false);
     };
 
     return (
@@ -128,14 +141,25 @@ const BoardItem: React.FC<{
                     </button>
                     {menuOpen && (
                         <div className="absolute right-0 bottom-full mb-1 z-10 w-32 bg-neutral-800 rounded-md shadow-lg border border-white/10 py-1 text-sm">
-                            <button onClick={() => handleMenuAction('rename')} className="block w-full text-left px-3 py-1.5 hover:bg-white/10">{translations[language].boards.rename}</button>
-                            <button onClick={() => handleMenuAction('duplicate')} className="block w-full text-left px-3 py-1.5 hover:bg-white/10">{translations[language].boards.duplicate}</button>
+                            <button onClick={() => handleMenuAction('rename')} className="block w-full text-left px-3 py-1.5 hover:bg-white/10">{t('boards.rename')}</button>
+                            <button onClick={() => handleMenuAction('duplicate')} className="block w-full text-left px-3 py-1.5 hover:bg-white/10">{t('boards.duplicate')}</button>
                             <div className="my-1 border-t border-white/10"></div>
-                            <button onClick={() => handleMenuAction('delete')} className="block w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400">{translations[language].boards.delete}</button>
+                            <button onClick={() => handleMenuAction('delete')} className="block w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400">{t('boards.delete')}</button>
                         </div>
                     )}
                 </div>
             </div>
+            
+            <ConfirmDialog
+                isOpen={showDeleteConfirm}
+                title={t('boards.deleteConfirm')}
+                message={`${t('boards.deleteMessage')} "${board.name}"?`}
+                type="danger"
+                confirmText={t('boards.delete')}
+                cancelText={t('common.cancel')}
+                onConfirm={handleDeleteConfirm}
+                onCancel={handleDeleteCancel}
+            />
         </div>
     );
 };
@@ -145,6 +169,7 @@ export const BoardPanel: React.FC<BoardPanelProps> = ({
     isOpen, onClose, boards, activeBoardId, onSwitchBoard, onAddBoard, 
     onRenameBoard, onDuplicateBoard, onDeleteBoard, generateBoardThumbnail, language 
 }) => {
+    const { t } = useTranslation();
     if (!isOpen) return null;
 
     return (
@@ -153,9 +178,9 @@ export const BoardPanel: React.FC<BoardPanelProps> = ({
             style={{ backgroundColor: 'var(--ui-bg-color)' }}
         >
             <div className="flex-shrink-0 flex justify-between items-center p-3 border-b border-white/10">
-                <h3 className="text-base font-semibold">{translations[language].boards.title}</h3>
+                <h3 className="text-base font-semibold">{t('boards.title')}</h3>
                 <div className="flex items-center space-x-1">
-                    <button onClick={onAddBoard} className="text-gray-300 hover:text-white p-1.5 rounded-full hover:bg-white/10" title={translations[language].boards.newBoard}>
+                    <button onClick={onAddBoard} className="text-gray-300 hover:text-white p-1.5 rounded-full hover:bg-white/10" title={t('boards.newBoard')}>
                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     </button>
                     <button onClick={onClose} className="text-gray-400 hover:text-white p-1 rounded-full">
