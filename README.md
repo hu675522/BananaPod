@@ -1,9 +1,12 @@
 <div align="center">
 
 <img width="1820" height="1024" alt="Group 343" src="https://github.com/user-attachments/assets/782dda02-7851-4619-8040-2575ac040799" />
+
 <img width="1820" height="1024" alt="Group 343" src="https://github.com/hu675522/BananaPod/blob/a9b3a86148acb99b20e7e326017d40c87d16cd1c/%E4%BC%98%E5%8C%96%E7%95%8C%E9%9D%A21.png" />
 
-# BananaPod ｜ 香蕉铺子 ｜ ZHO
+<img width="1820" height="1024" alt="Group 343" src="https://github.com/hu675522/BananaPod/blob/2ec02f7173b4ce48ccb4bf39d83f54b56a8af0a7/%E4%BC%98%E5%8C%96%E7%95%8C%E9%9D%A22.png" />
+
+# BananaPod ｜ 香蕉铺子 ｜ 原作者：ZHO
 
 </div>
 
@@ -17,21 +20,9 @@
 
 <img width="1955" height="2029" alt="Group 378" src="https://github.com/user-attachments/assets/9d46f99a-3ecb-4b59-a611-03742257b0eb" />
 
-  ✅局部重绘
+  ✅局部重绘           ✅提示词储存/复用系统               ✅UI 支持高度定制化                    ✅中英双界面
   
-  ✅提示词储存/复用系统
-  
-  ✅UI 支持高度定制化
-  
-  ✅中英双界面
-  
-  ✅多画板系统
-  
-  ✅图层系统
-  
-  ✅图片编辑系统
-  
-  ✅图片圆角
+  ✅多画板系统         ✅图层系统                         ✅图片编辑系统                         ✅图片圆角
 
   
 ### 2）视频生成模式
