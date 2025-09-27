@@ -16,9 +16,18 @@ import { Onboarding } from './components/Onboarding';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { AlertDialog } from './components/AlertDialog';
 import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement } from './types';
-import { editImage, generateImageFromText, generateVideo } from './services/geminiService';
+import { editImage, generateImageFromText, generateVideo, editImageWithStreaming, generateImageFromTextWithStreaming } from './services/geminiService';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
+import { 
+    throttle, 
+    rafThrottle, 
+    batchUpdater, 
+    SpatialGrid, 
+    simplifyPath, 
+    getVisibleElements,
+    performanceMonitor 
+} from './utils/canvasPerformance';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -413,6 +422,19 @@ const App: React.FC = () => {
         message: ''
     });
 
+    // API Key 状态管理
+    const [apiKey, setApiKey] = useState<string>('');
+
+    // 保存 API Key 到 localStorage
+    useEffect(() => {
+        if (apiKey) {
+            localStorage.setItem('gemini-api-key', apiKey);
+        } else {
+            // 当 API Key 为空时，从 localStorage 中移除
+            localStorage.removeItem('gemini-api-key');
+        }
+    }, [apiKey]);
+
     // Set initial active board ID
     useEffect(() => {
         if (boards.length > 0 && !activeBoardId) {
@@ -452,8 +474,14 @@ const App: React.FC = () => {
     const [generationMode, setGenerationMode] = useState<'image' | 'video'>('image');
     const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
     const [progressMessage, setProgressMessage] = useState<string>('');
+    const [progress, setProgress] = useState<number | undefined>(undefined);
 
     const interactionMode = useRef<string | null>(null);
+    
+    // 性能优化相关状态
+    const spatialGrid = useRef(new SpatialGrid(100));
+    const lastRenderTime = useRef(0);
+    const renderQueue = useRef<Set<string>>(new Set());
     const startPoint = useRef<Point>({ x: 0, y: 0 });
     const currentDrawingElementId = useRef<string | null>(null);
     const resizeStartInfo = useRef<{ originalElement: ImageElement | ShapeElement | TextElement | VideoElement; startCanvasPoint: Point; handle: string; shiftKey: boolean } | null>(null);
@@ -464,6 +492,18 @@ const App: React.FC = () => {
     const editingTextareaRef = useRef<HTMLTextAreaElement>(null);
     const previousToolRef = useRef<Tool>('select');
     const spacebarDownTime = useRef<number | null>(null);
+    
+    // 重置空格键状态的函数
+    const resetSpacebarState = () => {
+        spacebarDownTime.current = null;
+    };
+    
+    // 包装的setActiveTool函数，在设置工具时重置空格键状态
+    const handleSetActiveTool = (tool: Tool) => {
+        console.log('Setting active tool to:', tool);
+        resetSpacebarState();
+        setActiveTool(tool);
+    };
     elementsRef.current = elements;
 
     useEffect(() => {
@@ -502,6 +542,34 @@ const App: React.FC = () => {
     useEffect(() => {
         i18n.changeLanguage(language);
     }, [language, i18n]);
+
+    // 维护空间网格，当元素变化时更新
+    useEffect(() => {
+        spatialGrid.current.clear();
+        elements.forEach(element => {
+            if (element.type === 'path' && element.points.length > 0) {
+                // 为路径元素添加边界框
+                const minX = Math.min(...element.points.map(p => p.x));
+                const maxX = Math.max(...element.points.map(p => p.x));
+                const minY = Math.min(...element.points.map(p => p.y));
+                const maxY = Math.max(...element.points.map(p => p.y));
+                spatialGrid.current.addElement(element.id, { 
+                    x: minX, 
+                    y: minY, 
+                    width: maxX - minX, 
+                    height: maxY - minY 
+                });
+            } else if (element.type === 'shape' || element.type === 'image' || element.type === 'text') {
+                // 为其他元素添加边界框
+                spatialGrid.current.addElement(element.id, { 
+                    x: element.x, 
+                    y: element.y, 
+                    width: element.width, 
+                    height: element.height 
+                });
+            }
+        });
+    }, [elements]);
 
     useEffect(() => {
         const root = document.documentElement;
@@ -654,6 +722,7 @@ const App: React.FC = () => {
             if (e.key === ' ' && !isTyping) {
                 e.preventDefault();
                 if (spacebarDownTime.current === null) {
+                    console.log('Space key down, switching to pan mode, previous tool:', activeTool);
                     spacebarDownTime.current = Date.now();
                     previousToolRef.current = activeTool;
                     setActiveTool('pan');
@@ -673,16 +742,21 @@ const App: React.FC = () => {
                 spacebarDownTime.current = null;
                 
                 const toolBeforePan = previousToolRef.current;
+                console.log('Space key up, duration:', duration, 'toolBeforePan:', toolBeforePan);
 
                 if (duration < 200) { // Tap
                     if (toolBeforePan === 'pan') {
+                        console.log('Setting tool to select');
                         setActiveTool('select');
                     } else if (toolBeforePan === 'select') {
+                        console.log('Setting tool to pan');
                         setActiveTool('pan');
                     } else {
+                        console.log('Setting tool to select (default)');
                         setActiveTool('select');
                     }
                 } else { // Hold
+                    console.log('Setting tool back to:', toolBeforePan);
                     setActiveTool(toolBeforePan);
                 }
             }
@@ -762,6 +836,7 @@ const App: React.FC = () => {
     };
     
     const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+        console.log('handleMouseDown called, activeTool:', activeTool, 'editingElement:', editingElement);
         if (editingElement) return;
         if (contextMenu) setContextMenu(null);
 
@@ -842,7 +917,7 @@ const App: React.FC = () => {
                 strokeColor: drawingOptions.strokeColor,
                 strokeWidth: drawingOptions.strokeWidth,
                 fillColor: 'none',
-            }
+            };
             currentDrawingElementId.current = newShape.id;
             setElements(prev => [...prev, newShape], false);
         } else if (activeTool === 'arrow') {
@@ -917,8 +992,10 @@ const App: React.FC = () => {
         }
     };
 
-    const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const handleMouseMove = rafThrottle((e: React.MouseEvent<SVGSVGElement>) => {
         if (!interactionMode.current) return;
+        
+        const endTiming = performanceMonitor.startTiming('mouseMove');
         const point = getCanvasPoint(e.clientX, e.clientY);
         const startCanvasPoint = getCanvasPoint(startPoint.current.x, startPoint.current.y);
 
@@ -926,7 +1003,11 @@ const App: React.FC = () => {
             const eraseRadius = drawingOptions.strokeWidth / zoom;
             const idsToDelete = new Set<string>();
 
-            elements.forEach(el => {
+            // 使用空间网格快速查找附近的元素
+            const nearbyElementIds = spatialGrid.current.queryPoint(point.x, point.y, eraseRadius);
+            const nearbyElements = elements.filter(el => nearbyElementIds.has(el.id));
+
+            nearbyElements.forEach(el => {
                 let shouldErase = false;
 
                 if (el.type === 'path') {
@@ -1086,12 +1167,20 @@ const App: React.FC = () => {
             }
             case 'draw': {
                 if (currentDrawingElementId.current) {
-                    setElements(prev => prev.map(el => {
-                        if (el.id === currentDrawingElementId.current && el.type === 'path') {
-                            return { ...el, points: [...el.points, point] };
-                        }
-                        return el;
-                    }), false);
+                    // 使用批量更新优化性能
+                    batchUpdater.add(() => {
+                        setElements(prev => prev.map(el => {
+                            if (el.id === currentDrawingElementId.current && el.type === 'path') {
+                                const newPoints = [...el.points, point];
+                                // 每10个点简化一次路径以提高性能
+                                const simplifiedPoints = newPoints.length % 10 === 0 
+                                    ? simplifyPath(newPoints, 2) 
+                                    : newPoints;
+                                return { ...el, points: simplifiedPoints };
+                            }
+                            return el;
+                        }), false);
+                    });
                 }
                 break;
             }
@@ -1256,7 +1345,7 @@ const App: React.FC = () => {
                 break;
             }
         }
-    };
+    });
     
     const handleMouseUp = () => {
         if (interactionMode.current) {
@@ -1607,10 +1696,17 @@ const App: React.FC = () => {
         // 立即设置加载状态和初始提示消息
         setIsLoading(true);
         setError(null);
+        setProgress(0);
         setProgressMessage('正在准备生成...');
         
         // 给UI一点时间来更新显示加载状态
         await new Promise(resolve => setTimeout(resolve, 10));
+
+        // 进度回调函数
+        const onProgress = (progressValue: number, message: string) => {
+            setProgress(progressValue);
+            setProgressMessage(message);
+        };
 
         if (generationMode === 'video') {
             try {
@@ -1701,9 +1797,10 @@ const App: React.FC = () => {
                 if (imageElements.length === 1 && maskPaths.length > 0 && selectedElements.length === (1 + maskPaths.length)) {
                     const baseImage = imageElements[0];
                     const maskData = await rasterizeMask(maskPaths, baseImage);
-                    const result = await editImage(
+                    const result = await editImageWithStreaming(
                         [{ href: baseImage.href, mimeType: baseImage.mimeType }],
                         prompt,
+                        onProgress,
                         { href: maskData.href, mimeType: maskData.mimeType }
                     );
                     
@@ -1744,7 +1841,7 @@ const App: React.FC = () => {
                     return rasterizeElement(el as Exclude<Element, ImageElement | VideoElement>);
                 });
                 const imagesToProcess = await Promise.all(imagePromises);
-                const result = await editImage(imagesToProcess, prompt);
+                const result = await editImageWithStreaming(imagesToProcess, prompt, onProgress);
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -1777,7 +1874,7 @@ const App: React.FC = () => {
 
             } else {
                 // Generate from scratch
-                const result = await generateImageFromText(prompt);
+                const result = await generateImageFromTextWithStreaming(prompt, onProgress);
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -1827,7 +1924,8 @@ const App: React.FC = () => {
             setError(friendlyMessage); 
             console.error("Generation failed:", error);
         } finally { 
-            setIsLoading(false); 
+            setIsLoading(false);
+            setProgress(undefined);
         }
     };
     
@@ -2214,7 +2312,7 @@ const App: React.FC = () => {
     return (
         <div className="w-screen h-screen flex flex-col font-sans" style={{ backgroundColor: canvasBackgroundColor }} onDragOver={handleDragOver} onDrop={handleDrop}>
             <style>{errorAnimationStyle}</style>
-            {isLoading && <Loader progressMessage={progressMessage} />}
+            {isLoading && <Loader progressMessage={progressMessage} progress={progress} />}
             {error && (
                 <div 
                     className="fixed top-1/4 left-1/2 -translate-x-1/2 z-50 p-4 bg-red-100 border-2 border-red-500 text-red-700 rounded-lg shadow-xl flex items-center max-w-lg"
@@ -2259,12 +2357,14 @@ const App: React.FC = () => {
                 setButtonTheme={setButtonTheme}
                 wheelAction={wheelAction}
                 setWheelAction={setWheelAction}
+                apiKey={apiKey}
+                onApiKeyChange={setApiKey}
                 t={t}
             />
             <Toolbar
                 t={t}
                 activeTool={activeTool}
-                setActiveTool={setActiveTool}
+                setActiveTool={handleSetActiveTool}
                 drawingOptions={drawingOptions}
                 setDrawingOptions={setDrawingOptions}
                 onUpload={handleAddImageElement}
@@ -2366,8 +2466,8 @@ const App: React.FC = () => {
                                 
                                 if (!isTextBeingEdited) {
                                     if (selectedElementIds.length > 1 || el.type === 'path' || el.type === 'arrow' || el.type === 'line' || el.type === 'group') {
-                                         const bounds = getElementBounds(el, elements);
-                                         selectionComponent = <rect x={bounds.x} y={bounds.y} width={bounds.width} height={bounds.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2/zoom} strokeDasharray={`${6/zoom} ${4/zoom}`} pointerEvents="none" />
+                                        const bounds = getElementBounds(el, elements);
+                                        selectionComponent = <rect x={bounds.x} y={bounds.y} width={bounds.width} height={bounds.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2/zoom} strokeDasharray={`${6/zoom} ${4/zoom}`} pointerEvents="none" />
                                     } else if ((el.type === 'image' || el.type === 'shape' || el.type === 'text' || el.type === 'video')) {
                                         const handleSize = 8 / zoom;
                                         const handles = [
@@ -2375,14 +2475,14 @@ const App: React.FC = () => {
                                             { name: 'ml', x: el.x, y: el.y + el.height / 2, cursor: 'ew-resize' }, { name: 'mr', x: el.x + el.width, y: el.y + el.height / 2, cursor: 'ew-resize' },
                                             { name: 'bl', x: el.x, y: el.y + el.height, cursor: 'nesw-resize' }, { name: 'bm', x: el.x + el.width / 2, y: el.y + el.height, cursor: 'ns-resize' }, { name: 'br', x: el.x + el.width, y: el.y + el.height, cursor: 'nwse-resize' },
                                         ];
-                                         selectionComponent = <g>
+                                        selectionComponent = <g>
                                             <rect x={el.x} y={el.y} width={el.width} height={el.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2 / zoom} pointerEvents="none" />
                                             {handles.map(h => <rect key={h.name} data-handle={h.name} x={h.x - handleSize / 2} y={h.y - handleSize / 2} width={handleSize} height={handleSize} fill="white" stroke="#3b82f6" strokeWidth={1 / zoom} style={{ cursor: h.cursor }} />)}
                                         </g>;
                                     }
                                 }
                             }
-                           
+                            
                             if (el.type === 'path') {
                                 const pathData = el.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
                                 return <g key={el.id} data-id={el.id} className="cursor-pointer"><path d={pathData} stroke={el.strokeColor} strokeWidth={el.strokeWidth / zoom} fill="none" strokeLinecap="round" strokeLinejoin="round" pointerEvents="stroke" strokeOpacity={el.strokeOpacity} />{selectionComponent}</g>;
@@ -2429,9 +2529,9 @@ const App: React.FC = () => {
                                             </foreignObject>
                                         )}
                                         {selectionComponent && React.cloneElement(selectionComponent, { transform: `translate(${-el.x}, ${-el.y})` })}
-                                    </g>
-                                )
-                            }
+                                     </g>
+                                 );
+                             }
                              if (el.type === 'shape') {
                                 let shapeJsx;
                                 if (el.shapeType === 'rectangle') shapeJsx = <rect width={el.width} height={el.height} rx={el.borderRadius || 0} ry={el.borderRadius || 0} />
@@ -2466,7 +2566,7 @@ const App: React.FC = () => {
                                     </g>
                                 );
                             }
-                             if (el.type === 'video') {
+                            if (el.type === 'video') {
                                 return (
                                     <g key={el.id} data-id={el.id}>
                                         <foreignObject x={el.x} y={el.y} width={el.width} height={el.height}>
@@ -2484,7 +2584,7 @@ const App: React.FC = () => {
                              if (el.type === 'group') {
                                 return <g key={el.id} data-id={el.id}>{selectionComponent}</g>
                              }
-                            return null;
+                             return null;
                         })}
 
                         {lassoPath && (
