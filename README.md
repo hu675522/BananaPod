@@ -1,7 +1,7 @@
 <div align="center">
 
 <img width="1820" height="1024" alt="Group 343" src="https://github.com/user-attachments/assets/782dda02-7851-4619-8040-2575ac040799" />
-
+<img width="1820" height="1024" alt="Group 343" src="https://github.com/hu675522/BananaPod/blob/a9b3a86148acb99b20e7e326017d40c87d16cd1c/%E4%BC%98%E5%8C%96%E7%95%8C%E9%9D%A21.png" />
 
 # BananaPod ｜ 香蕉铺子 ｜ ZHO
 
