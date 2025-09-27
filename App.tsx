@@ -5,6 +5,7 @@
 
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
 import { Loader } from './components/Loader';
@@ -12,6 +13,8 @@ import { CanvasSettings } from './components/CanvasSettings';
 import { LayerPanel } from './components/LayerPanel';
 import { BoardPanel } from './components/BoardPanel';
 import { Onboarding } from './components/Onboarding';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { AlertDialog } from './components/AlertDialog';
 import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement } from './types';
 import { editImage, generateImageFromText, generateVideo } from './services/geminiService';
 import { fileToDataUrl } from './utils/fileUtils';
@@ -351,12 +354,16 @@ const createNewBoard = (name: string): Board => {
         historyIndex: 0,
         panOffset: { x: 0, y: 0 },
         zoom: 1,
-        canvasBackgroundColor: '#111827',
+        canvasBackgroundColor: '#0f172a',
     };
 };
 
 const App: React.FC = () => {
-    const [language, setLanguage] = useState<'en' | 'zho'>('en');
+    const { t, i18n } = useTranslation();
+    const [language, setLanguage] = useState<'en' | 'zho'>(() => {
+        const saved = localStorage.getItem('bananapod-language');
+        return (saved as 'en' | 'zho') || 'zho'; // 默认为中文
+    });
     
     const [boards, setBoards] = useState<Board[]>(() => {
         // TODO: Load from localStorage
@@ -392,9 +399,19 @@ const App: React.FC = () => {
     const [alignmentGuides, setAlignmentGuides] = useState<Guide[]>([]);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
     const [editingElement, setEditingElement] = useState<{ id: string; text: string; } | null>(null);
+    const [userManuallyResizedHeight, setUserManuallyResizedHeight] = useState<{ [elementId: string]: boolean }>({});
     const [lassoPath, setLassoPath] = useState<Point[] | null>(null);
-    const [uiTheme, setUiTheme] = useState({ color: '#1a1a1a', opacity: 0.9 });
-    const [buttonTheme, setButtonTheme] = useState({ color: '#22c55e', opacity: 0.9 });
+    const [uiTheme, setUiTheme] = useState({ color: '#1e1b4b', opacity: 0.85 });
+    const [buttonTheme, setButtonTheme] = useState({ color: '#06b6d4', opacity: 0.9 });
+    const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{ isOpen: boolean; elementId: string | null; elementName: string }>({ 
+        isOpen: false, 
+        elementId: null, 
+        elementName: '' 
+    });
+    const [fontSizeAlert, setFontSizeAlert] = useState<{ isOpen: boolean; message: string }>({
+        isOpen: false,
+        message: ''
+    });
 
     // Set initial active board ID
     useEffect(() => {
@@ -402,6 +419,11 @@ const App: React.FC = () => {
             setActiveBoardId(boards[0].id);
         }
     }, [boards, activeBoardId]);
+
+    // Save language to localStorage
+    useEffect(() => {
+        localStorage.setItem('bananapod-language', language);
+    }, [language]);
 
     // Update initial board name when language changes
     useEffect(() => {
@@ -476,17 +498,10 @@ const App: React.FC = () => {
         setUserEffects(prev => prev.filter(effect => effect.id !== id));
     }, []);
 
-    const t = useCallback((key: string, ...args: any[]): any => {
-        const keys = key.split('.');
-        let result: any = translations[language];
-        for (const k of keys) {
-            result = result?.[k];
-        }
-        if (typeof result === 'function') {
-            return result(...args);
-        }
-        return result || key;
-    }, [language]);
+    // 同步i18n语言
+    useEffect(() => {
+        i18n.changeLanguage(language);
+    }, [language, i18n]);
 
     useEffect(() => {
         const root = document.documentElement;
@@ -580,25 +595,45 @@ const App: React.FC = () => {
 
     const handleStopEditing = useCallback(() => {
         if (!editingElement) return;
-        commitAction(prev => prev.map(el =>
-            el.id === editingElement.id && el.type === 'text'
-                ? { ...el, text: editingElement.text }
-                // Persist auto-height change on blur
-                : el.id === editingElement.id && el.type === 'text' && editingTextareaRef.current ? { ...el, text: editingElement.text, height: editingTextareaRef.current.scrollHeight }
-                : el
-        ));
+        
+        // 确保文本内容不为空时才保存，如果为空则删除元素
+        const textContent = editingElement.text.trim();
+        
+        if (textContent === '') {
+            // 如果文本为空，删除该元素
+            commitAction(prev => prev.filter(el => el.id !== editingElement.id));
+            setSelectedElementIds(prev => prev.filter(id => id !== editingElement.id));
+        } else {
+            // 保存文本内容和高度
+            commitAction(prev => prev.map(el => {
+                if (el.id === editingElement.id && el.type === 'text') {
+                    const newHeight = editingTextareaRef.current ? editingTextareaRef.current.scrollHeight : el.height;
+                    return { ...el, text: textContent, height: Math.max(newHeight, 20) };
+                }
+                return el;
+            }));
+        }
+        
         setEditingElement(null);
-    }, [commitAction, editingElement]);
+        
+        // 清除手动调节标记，以便下次编辑时重新启用自动高度调节
+        setUserManuallyResizedHeight(prev => {
+            const newState = { ...prev };
+            delete newState[editingElement.id];
+            return newState;
+        });
+    }, [commitAction, editingElement, setSelectedElementIds]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (editingElement) {
-                if(e.key === 'Escape') handleStopEditing();
-                return;
-            }
-
             const target = e.target as HTMLElement;
             const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+            
+            if (editingElement) {
+                if(e.key === 'Escape') handleStopEditing();
+                // 在编辑模式下，不处理其他键盘事件，让textarea正常接收输入
+                return;
+            }
 
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndo(); return; }
             if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); handleRedo(); return; }
@@ -752,10 +787,10 @@ const App: React.FC = () => {
         }
          if (activeTool === 'text') {
             const newText: TextElement = {
-                id: generateId(), type: 'text', name: 'Text',
+                id: generateId(), type: 'text', name: t('layers.elementTypes.text'),
                 x: canvasStartPoint.x, y: canvasStartPoint.y,
                 width: 150, height: 40,
-                text: "Text", fontSize: 24, fontColor: drawingOptions.strokeColor
+                text: t('layers.elementTypes.text'), fontSize: 24, fontColor: drawingOptions.strokeColor
             };
             setElements(prev => [...prev, newText]);
             setSelectedElementIds([newText.id]);
@@ -785,7 +820,7 @@ const App: React.FC = () => {
             interactionMode.current = 'draw';
             const newPath: PathElement = {
                 id: generateId(),
-                type: 'path', name: 'Path',
+                type: 'path', name: t('layers.elementTypes.path'),
                 points: [canvasStartPoint],
                 strokeColor: drawingOptions.strokeColor,
                 strokeWidth: drawingOptions.strokeWidth,
@@ -813,7 +848,7 @@ const App: React.FC = () => {
         } else if (activeTool === 'arrow') {
             interactionMode.current = 'drawArrow';
             const newArrow: ArrowElement = {
-                id: generateId(), type: 'arrow', name: 'Arrow',
+                id: generateId(), type: 'arrow', name: t('layers.elementTypes.arrow'),
                 x: canvasStartPoint.x, y: canvasStartPoint.y,
                 points: [canvasStartPoint, canvasStartPoint],
                 strokeColor: drawingOptions.strokeColor, strokeWidth: drawingOptions.strokeWidth
@@ -823,7 +858,7 @@ const App: React.FC = () => {
         } else if (activeTool === 'line') {
             interactionMode.current = 'drawLine';
             const newLine: LineElement = {
-                id: generateId(), type: 'line', name: 'Line',
+                id: generateId(), type: 'line', name: t('layers.elementTypes.line'),
                 x: canvasStartPoint.x, y: canvasStartPoint.y,
                 points: [canvasStartPoint, canvasStartPoint],
                 strokeColor: drawingOptions.strokeColor, strokeWidth: drawingOptions.strokeWidth
@@ -1293,6 +1328,32 @@ const App: React.FC = () => {
         setSelectedElementIds(prev => prev.filter(selId => selId !== id));
     };
 
+    const handleDeleteElementWithConfirm = (id: string) => {
+        const element = elements?.find(el => el.id === id);
+        if (!element) return;
+        
+        const elementName = element.name || (element.type === 'shape' && element.shapeType ? 
+            t(`layers.elementTypes.${element.shapeType}`) : 
+            t(`layers.elementTypes.${element.type}`));
+        
+        setDeleteConfirmDialog({
+            isOpen: true,
+            elementId: id,
+            elementName
+        });
+    };
+
+    const handleConfirmDelete = () => {
+        if (deleteConfirmDialog.elementId) {
+            handleDeleteElement(deleteConfirmDialog.elementId);
+        }
+        setDeleteConfirmDialog({ isOpen: false, elementId: null, elementName: '' });
+    };
+
+    const handleCancelDelete = () => {
+        setDeleteConfirmDialog({ isOpen: false, elementId: null, elementName: '' });
+    };
+
     const handleCopyElement = (elementToCopy: Element) => {
         commitAction(prev => {
             const elementsToCopy = [elementToCopy, ...getDescendants(elementToCopy.id, prev)];
@@ -1414,29 +1475,127 @@ const App: React.FC = () => {
             setTimeout(() => {
                 if (editingTextareaRef.current) {
                     editingTextareaRef.current.focus();
-                    editingTextareaRef.current.select();
+                    // 将光标移到文本末尾，而不是全选
+                    const textLength = editingTextareaRef.current.value.length;
+                    editingTextareaRef.current.setSelectionRange(textLength, textLength);
                 }
             }, 0);
+
+            // 添加ResizeObserver来监听textarea的大小变化
+            let isUserResizing = false;
+            let initialObservation = true;
+            
+            const resizeObserver = new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    const { width, height } = entry.contentRect;
+                    
+                    // 跳过初始化时的第一次观察，避免自动缩小
+                    if (initialObservation) {
+                        initialObservation = false;
+                        return;
+                    }
+                    
+                    // 获取当前元素尺寸
+                    const currentElement = elements.find(el => el.id === editingElement.id) as TextElement;
+                    if (!currentElement) return;
+                    
+                    const newWidth = Math.max(width + 12, 50); // 加上padding
+                    const newHeight = Math.max(height + 12, 30);
+                    
+                    // 检查尺寸变化
+                    const widthChanged = Math.abs(newWidth - currentElement.width) > 2;
+                    const heightChanged = Math.abs(newHeight - currentElement.height) > 2;
+                    
+                    // 如果用户正在调节，或者宽度发生变化，或者高度增加了，则更新尺寸
+                    const shouldUpdate = isUserResizing || widthChanged || (heightChanged && newHeight > currentElement.height);
+                    
+                    if (shouldUpdate) {
+                        // 如果高度发生了变化，标记用户手动调节过高度
+                        if (heightChanged) {
+                            setUserManuallyResizedHeight(prev => ({
+                                ...prev,
+                                [editingElement.id]: true
+                            }));
+                        }
+                        
+                        setElements(prev => prev.map(el => 
+                            el.id === editingElement.id && el.type === 'text' 
+                            ? { ...el, width: newWidth, height: newHeight }
+                            : el
+                        ), false);
+                    }
+                }
+            });
+            
+            // 监听鼠标事件来判断是否为用户主动调节
+            const handleMouseDown = (e: MouseEvent) => {
+                if (editingTextareaRef.current) {
+                    const rect = editingTextareaRef.current.getBoundingClientRect();
+                    // 扩大检测范围：右边缘30px，下边缘30px，以及右下角区域
+                    const isResizeHandle = (
+                        // 右边缘调节
+                        (e.clientX > rect.right - 30 && e.clientX <= rect.right + 10 && 
+                         e.clientY >= rect.top && e.clientY <= rect.bottom) ||
+                        // 下边缘调节
+                        (e.clientY > rect.bottom - 30 && e.clientY <= rect.bottom + 10 && 
+                         e.clientX >= rect.left && e.clientX <= rect.right) ||
+                        // 右下角调节
+                        (e.clientX > rect.right - 30 && e.clientX <= rect.right + 10 &&
+                         e.clientY > rect.bottom - 30 && e.clientY <= rect.bottom + 10)
+                    );
+                    if (isResizeHandle) {
+                        isUserResizing = true;
+                    }
+                }
+            };
+            
+            const handleMouseUp = () => {
+                // 延迟重置，确保ResizeObserver能捕获到最后的尺寸变化
+                setTimeout(() => {
+                    isUserResizing = false;
+                }, 100);
+            };
+            
+            document.addEventListener('mousedown', handleMouseDown);
+            document.addEventListener('mouseup', handleMouseUp);
+            resizeObserver.observe(editingTextareaRef.current);
+
+            return () => {
+                document.removeEventListener('mousedown', handleMouseDown);
+                document.removeEventListener('mouseup', handleMouseUp);
+                resizeObserver.disconnect();
+            };
         }
-    }, [editingElement]);
+    }, [editingElement, setElements]);
     
     useEffect(() => {
         if (editingElement && editingTextareaRef.current) {
             const textarea = editingTextareaRef.current;
-            textarea.style.height = 'auto';
-            const newHeight = textarea.scrollHeight;
-            textarea.style.height = ''; 
-
+            
+            // 检查是否有用户手动调节的痕迹
             const currentElement = elementsRef.current.find(el => el.id === editingElement.id);
-            if (currentElement && currentElement.type === 'text' && currentElement.height !== newHeight) {
+            if (!currentElement || currentElement.type !== 'text') return;
+            
+            // 如果用户手动调节过高度，则不进行自动高度调节
+            if (userManuallyResizedHeight[editingElement.id]) {
+                return;
+            }
+            
+            // 计算内容所需的最小高度
+            textarea.style.height = 'auto';
+            const contentHeight = textarea.scrollHeight;
+            textarea.style.height = ''; 
+            
+            // 只有当当前高度小于内容高度时才自动调节（避免覆盖用户手动调节）
+            if (currentElement.height < contentHeight) {
                 setElements(prev => prev.map(el => 
                     el.id === editingElement.id && el.type === 'text' 
-                    ? { ...el, height: newHeight } 
+                    ? { ...el, height: contentHeight } 
                     : el
                 ), false);
             }
         }
-    }, [editingElement?.text, setElements]);
+    }, [editingElement?.text, setElements, userManuallyResizedHeight]);
 
 
     const handleGenerate = async () => {
@@ -1499,7 +1658,7 @@ const App: React.FC = () => {
                     const y = canvasPoint.y - (newHeight / 2);
 
                     const newVideoElement: VideoElement = {
-                        id: generateId(), type: 'video', name: 'Generated Video',
+                        id: generateId(), type: 'video', name: t('layers.elementTypes.generatedVideo'),
                         x, y,
                         width: newWidth,
                         height: newHeight,
@@ -1603,7 +1762,7 @@ const App: React.FC = () => {
                         const y = minY;
                         
                         const newImage: ImageElement = {
-                            id: generateId(), type: 'image', x, y, name: 'Generated Image',
+                            id: generateId(), type: 'image', x, y, name: t('layers.elementTypes.generatedImage'),
                             width: img.width, height: img.height,
                             href: `data:${newImageMimeType};base64,${newImageBase64}`, mimeType: newImageMimeType,
                         };
@@ -1633,7 +1792,7 @@ const App: React.FC = () => {
                         const y = canvasPoint.y - (img.height / 2);
                         
                         const newImage: ImageElement = {
-                            id: generateId(), type: 'image', x, y, name: 'Generated Image',
+                            id: generateId(), type: 'image', x, y, name: t('layers.elementTypes.generatedImage'),
                             width: img.width, height: img.height,
                             href: `data:${newImageMimeType};base64,${newImageBase64}`, mimeType: newImageMimeType,
                         };
@@ -1676,6 +1835,15 @@ const App: React.FC = () => {
     const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); if (e.dataTransfer.files && e.dataTransfer.files[0]) { handleAddImageElement(e.dataTransfer.files[0]); } }, [handleAddImageElement]);
 
     const handlePropertyChange = (elementId: string, updates: Partial<Element>) => {
+        // 检查字号限制
+        if (updates.fontSize && updates.fontSize > 70) {
+            setFontSizeAlert({
+                isOpen: true,
+                message: '字号不能超过70，请输入一个较小的值。'
+            });
+            return; // 阻止更新
+        }
+        
         commitAction(prev => prev.map(el => {
             if (el.id === elementId) {
                  return { ...el, ...updates };
@@ -1731,7 +1899,7 @@ const App: React.FC = () => {
             
             const newImage: ImageElement = {
                 id: generateId(),
-                type: 'image', name: 'Rasterized Image',
+                type: 'image', name: t('layers.elementTypes.rasterizedImage'),
                 x: minX - 10, // Account for padding used during rasterization
                 y: minY - 10, // Account for padding
                 width,
@@ -1768,7 +1936,7 @@ const App: React.FC = () => {
         const newGroup: GroupElement = {
             id: newGroupId,
             type: 'group',
-            name: 'Group',
+            name: t('layers.elementTypes.group'),
             x: bounds.x,
             y: bounds.y,
             width: bounds.width,
@@ -1976,7 +2144,7 @@ const App: React.FC = () => {
         // Check if another board already has this name
         const isDuplicate = boards.some(b => b.id !== boardId && b.name.toLowerCase() === name.trim().toLowerCase());
         if (isDuplicate) {
-            alert(translations[language].boards.nameAlreadyExists);
+            alert(t('boards.nameAlreadyExists'));
             return false;
         }
         
@@ -2075,7 +2243,7 @@ const App: React.FC = () => {
                 onRenameBoard={handleRenameBoard}
                 onDuplicateBoard={handleDuplicateBoard}
                 onDeleteBoard={handleDeleteBoard}
-                generateBoardThumbnail={(els) => generateBoardThumbnail(els, activeBoard?.canvasBackgroundColor || '#1a1a1a')}
+                generateBoardThumbnail={(els) => generateBoardThumbnail(els, activeBoard?.canvasBackgroundColor || '#0f172a')}
                 language={language}
             />
             <CanvasSettings 
@@ -2127,6 +2295,7 @@ const App: React.FC = () => {
                 onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
                 onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
                 onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                onDeleteElement={handleDeleteElementWithConfirm}
                 onRenameElement={(id, name) => handlePropertyChange(id, { name })}
                 onReorder={(draggedId, targetId, position) => {
                     commitAction(prev => {
@@ -2147,6 +2316,7 @@ const App: React.FC = () => {
                         return newElements;
                     });
                 }}
+                language={language}
             />
             <div className="flex-grow relative overflow-hidden">
                 <svg
@@ -2191,20 +2361,25 @@ const App: React.FC = () => {
                             let selectionComponent = null;
 
                             if (isSelected && !croppingState) {
-                                if (selectedElementIds.length > 1 || el.type === 'path' || el.type === 'arrow' || el.type === 'line' || el.type === 'group') {
-                                     const bounds = getElementBounds(el, elements);
-                                     selectionComponent = <rect x={bounds.x} y={bounds.y} width={bounds.width} height={bounds.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2/zoom} strokeDasharray={`${6/zoom} ${4/zoom}`} pointerEvents="none" />
-                                } else if ((el.type === 'image' || el.type === 'shape' || el.type === 'text' || el.type === 'video')) {
-                                    const handleSize = 8 / zoom;
-                                    const handles = [
-                                        { name: 'tl', x: el.x, y: el.y, cursor: 'nwse-resize' }, { name: 'tm', x: el.x + el.width / 2, y: el.y, cursor: 'ns-resize' }, { name: 'tr', x: el.x + el.width, y: el.y, cursor: 'nesw-resize' },
-                                        { name: 'ml', x: el.x, y: el.y + el.height / 2, cursor: 'ew-resize' }, { name: 'mr', x: el.x + el.width, y: el.y + el.height / 2, cursor: 'ew-resize' },
-                                        { name: 'bl', x: el.x, y: el.y + el.height, cursor: 'nesw-resize' }, { name: 'bm', x: el.x + el.width / 2, y: el.y + el.height, cursor: 'ns-resize' }, { name: 'br', x: el.x + el.width, y: el.y + el.height, cursor: 'nwse-resize' },
-                                    ];
-                                     selectionComponent = <g>
-                                        <rect x={el.x} y={el.y} width={el.width} height={el.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2 / zoom} pointerEvents="none" />
-                                        {handles.map(h => <rect key={h.name} data-handle={h.name} x={h.x - handleSize / 2} y={h.y - handleSize / 2} width={handleSize} height={handleSize} fill="white" stroke="#3b82f6" strokeWidth={1 / zoom} style={{ cursor: h.cursor }} />)}
-                                    </g>;
+                                // 如果是文本元素且正在编辑，则不显示SVG调节手柄，避免与textarea的resize冲突
+                                const isTextBeingEdited = el.type === 'text' && editingElement && editingElement.id === el.id;
+                                
+                                if (!isTextBeingEdited) {
+                                    if (selectedElementIds.length > 1 || el.type === 'path' || el.type === 'arrow' || el.type === 'line' || el.type === 'group') {
+                                         const bounds = getElementBounds(el, elements);
+                                         selectionComponent = <rect x={bounds.x} y={bounds.y} width={bounds.width} height={bounds.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2/zoom} strokeDasharray={`${6/zoom} ${4/zoom}`} pointerEvents="none" />
+                                    } else if ((el.type === 'image' || el.type === 'shape' || el.type === 'text' || el.type === 'video')) {
+                                        const handleSize = 8 / zoom;
+                                        const handles = [
+                                            { name: 'tl', x: el.x, y: el.y, cursor: 'nwse-resize' }, { name: 'tm', x: el.x + el.width / 2, y: el.y, cursor: 'ns-resize' }, { name: 'tr', x: el.x + el.width, y: el.y, cursor: 'nesw-resize' },
+                                            { name: 'ml', x: el.x, y: el.y + el.height / 2, cursor: 'ew-resize' }, { name: 'mr', x: el.x + el.width, y: el.y + el.height / 2, cursor: 'ew-resize' },
+                                            { name: 'bl', x: el.x, y: el.y + el.height, cursor: 'nesw-resize' }, { name: 'bm', x: el.x + el.width / 2, y: el.y + el.height, cursor: 'ns-resize' }, { name: 'br', x: el.x + el.width, y: el.y + el.height, cursor: 'nwse-resize' },
+                                        ];
+                                         selectionComponent = <g>
+                                            <rect x={el.x} y={el.y} width={el.width} height={el.height} fill="none" stroke="rgb(59 130 246)" strokeWidth={2 / zoom} pointerEvents="none" />
+                                            {handles.map(h => <rect key={h.name} data-handle={h.name} x={h.x - handleSize / 2} y={h.y - handleSize / 2} width={handleSize} height={handleSize} fill="white" stroke="#3b82f6" strokeWidth={1 / zoom} style={{ cursor: h.cursor }} />)}
+                                        </g>;
+                                    }
                                 }
                             }
                            
@@ -2450,7 +2625,29 @@ const App: React.FC = () => {
                                             </>
                                         )}
                                         {element.type === 'text' && <input type="color" title={t('contextMenu.fontColor')} value={element.fontColor} onChange={e => handlePropertyChange(element.id, { fontColor: e.target.value })} className="w-7 h-7 p-0 border-none rounded cursor-pointer" />}
-                                        {element.type === 'text' && <input type="number" title={t('contextMenu.fontSize')} value={element.fontSize} onChange={e => handlePropertyChange(element.id, { fontSize: parseInt(e.target.value, 10) || 16 })} className="w-16 p-1 border rounded bg-gray-100 text-gray-800" />}
+                                        {element.type === 'text' && <input type="number" title={t('contextMenu.fontSize')} value={element.fontSize || ''} onChange={e => {
+                                            const value = e.target.value;
+                                            if (value === '') {
+                                                // 允许清空，但不更新元素
+                                                return;
+                                            }
+                                            const numValue = parseInt(value, 10);
+                                            if (!isNaN(numValue) && numValue > 0) {
+                                                if (numValue > 70) {
+                                                    setFontSizeAlert({
+                                                        isOpen: true,
+                                                        message: '字号不能超过70，请输入一个较小的值。'
+                                                    });
+                                                    return;
+                                                }
+                                                handlePropertyChange(element.id, { fontSize: numValue });
+                                            }
+                                        }} onBlur={e => {
+                                            // 失去焦点时，如果为空则设置默认值
+                                            if (e.target.value === '' || isNaN(parseInt(e.target.value, 10))) {
+                                                handlePropertyChange(element.id, { fontSize: 16 });
+                                            }
+                                        }} className="w-16 p-1 border rounded bg-gray-100 text-gray-800" />}
                                         {(element.type === 'arrow' || element.type === 'line') && <input type="color" title={t('contextMenu.strokeColor')} value={element.strokeColor} onChange={e => handlePropertyChange(element.id, { strokeColor: e.target.value })} className="w-7 h-7 p-0 border-none rounded cursor-pointer" />}
                                         {(element.type === 'arrow' || element.type === 'line') && <input type="range" title={t('contextMenu.strokeWidth')} min="1" max="50" value={element.strokeWidth} onChange={e => handlePropertyChange(element.id, { strokeWidth: parseInt(e.target.value, 10) })} className="w-20" />}
                                         <div className="h-6 w-px bg-gray-200"></div>
@@ -2478,11 +2675,45 @@ const App: React.FC = () => {
                                     value={editingElement.text}
                                     onChange={(e) => setEditingElement({ ...editingElement, text: e.target.value })}
                                     onBlur={() => handleStopEditing()}
+                                    onKeyDown={(e) => {
+                                        // 阻止事件冒泡，确保键盘输入不被全局事件处理器拦截
+                                        e.stopPropagation();
+                                        
+                                        if (e.key === 'Escape') {
+                                            e.preventDefault();
+                                            handleStopEditing();
+                                        } else if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleStopEditing();
+                                        }
+                                        // 其他键盘事件正常处理，包括数字输入
+                                    }}
                                     style={{
-                                        width: '100%', height: '100%', border: 'none', padding: 0, margin: 0,
-                                        outline: 'none', resize: 'none', background: 'transparent',
-                                        fontSize: element.fontSize, color: element.fontColor,
-                                        overflow: 'hidden'
+                                        width: '100%', height: '100%', 
+                                        // 增强边框可见性 - 使用更鲜明的颜色和更粗的边框
+                                        border: '3px solid #3b82f6', 
+                                        padding: '6px', margin: 0, borderRadius: '6px',
+                                        outline: 'none', resize: 'both', background: 'rgba(30, 30, 30, 0.95)',
+                                        fontSize: element.fontSize, color: '#ffffff',
+                                        overflow: 'visible', boxSizing: 'border-box',
+                                        fontFamily: 'inherit', lineHeight: '1.2',
+                                        minWidth: '50px', minHeight: '30px',
+                                        // 增强调节手柄和边框的可见性
+                                        boxShadow: `
+                                            0 0 0 1px #3b82f6,
+                                            0 0 0 4px rgba(59, 130, 246, 0.2),
+                                            0 4px 12px rgba(0, 0, 0, 0.3),
+                                            inset -8px -8px 0 rgba(59, 130, 246, 0.1)
+                                        `,
+                                        transition: 'all 0.2s ease',
+                                        // 增强调节手柄的视觉效果
+                                        backgroundImage: `
+                                            linear-gradient(135deg, transparent 0%, transparent 85%, #3b82f6 85%, #3b82f6 100%),
+                                            linear-gradient(45deg, transparent 0%, transparent 85%, rgba(59, 130, 246, 0.3) 85%, rgba(59, 130, 246, 0.3) 100%)
+                                        `,
+                                        backgroundSize: '12px 12px, 8px 8px',
+                                        backgroundPosition: 'bottom right, bottom right',
+                                        backgroundRepeat: 'no-repeat'
                                     }}
                                  />
                              </foreignObject>
@@ -2566,6 +2797,17 @@ const App: React.FC = () => {
                 setVideoAspectRatio={setVideoAspectRatio}
             />}
             
+            <ConfirmDialog
+                isOpen={deleteConfirmDialog.isOpen}
+                title={t('layers.delete')}
+                message={`${t('common.confirm')} "${deleteConfirmDialog.elementName}"?`}
+                type="danger"
+                confirmText={t('layers.delete')}
+                cancelText={t('common.cancel')}
+                onConfirm={handleConfirmDelete}
+                onCancel={handleCancelDelete}
+            />
+
             {showOnboarding && (
                 <Onboarding 
                     onComplete={() => {
@@ -2575,6 +2817,14 @@ const App: React.FC = () => {
                     t={t}
                 />
             )}
+            
+            {/* 字号限制提示框 */}
+            <AlertDialog
+                isOpen={fontSizeAlert.isOpen}
+                title="字号限制"
+                message={fontSizeAlert.message}
+                onClose={() => setFontSizeAlert({ isOpen: false, message: '' })}
+            />
         </div>
     );
 };

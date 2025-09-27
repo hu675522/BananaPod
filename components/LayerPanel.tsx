@@ -2,6 +2,7 @@
 
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Element } from '../types';
 
 interface LayerPanelProps {
@@ -12,8 +13,10 @@ interface LayerPanelProps {
     onSelectElement: (id: string | null) => void;
     onToggleVisibility: (id: string) => void;
     onToggleLock: (id: string) => void;
+    onDeleteElement: (id: string) => void;
     onRenameElement: (id: string, name: string) => void;
     onReorder: (draggedId: string, targetId: string, position: 'before' | 'after') => void;
+    language: 'en' | 'zho';
 }
 
 const getElementIcon = (element: Element): React.ReactNode => {
@@ -63,19 +66,24 @@ const LayerItem: React.FC<{
     onSelect: () => void;
     onToggleVisibility: () => void;
     onToggleLock: () => void;
+    onDelete: () => void;
     onRename: (name: string) => void;
     onDragStart: (e: React.DragEvent<HTMLDivElement>) => void;
     onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
     onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
     onDragLeave: (e: React.DragEvent<HTMLDivElement>) => void;
-}> = ({ element, level, isSelected, onSelect, onToggleVisibility, onToggleLock, onRename, ...dragProps }) => {
+    language: 'en' | 'zho';
+}> = ({ element, level, isSelected, onSelect, onToggleVisibility, onToggleLock, onDelete, onRename, language, ...dragProps }) => {
     const [isEditing, setIsEditing] = useState(false);
-    const [name, setName] = useState(element.name || element.type);
+    const { t } = useTranslation();
+    const initialName = element.name || (element.type === 'shape' && element.shapeType ? t(`layers.elementTypes.${element.shapeType}`) : t(`layers.elementTypes.${element.type}`));
+    const [name, setName] = useState(initialName);
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        setName(element.name || element.type);
-    }, [element.name, element.type]);
+        const translatedName = element.name || (element.type === 'shape' && element.shapeType ? t(`layers.elementTypes.${element.shapeType}`) : t(`layers.elementTypes.${element.type}`));
+        setName(translatedName);
+    }, [element.name, element.type, element.shapeType, t]);
 
     useEffect(() => {
         if (isEditing && inputRef.current) {
@@ -87,7 +95,8 @@ const LayerItem: React.FC<{
     const handleBlur = () => {
         setIsEditing(false);
         if (name.trim() === '') {
-            setName(element.name || element.type);
+            const translatedName = element.name || (element.type === 'shape' && element.shapeType ? t(`layers.elementTypes.${element.shapeType}`) : t(`layers.elementTypes.${element.type}`));
+            setName(translatedName);
         } else {
             onRename(name);
         }
@@ -126,9 +135,19 @@ const LayerItem: React.FC<{
             )}
             <div className="flex-shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
-                    onClick={(e) => { e.stopPropagation(); onToggleLock(); }}
-                    className={`p-1 rounded-full hover:bg-white/20 ${element.isLocked ? 'text-white' : 'text-gray-400'}`}
-                    title={element.isLocked ? "Unlock" : "Lock"}
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        // 当元素隐藏时，锁定按钮不可点击
+                        if (element.isVisible === false) return;
+                        onToggleLock(); 
+                    }}
+                    className={`p-1 rounded-full ${
+                        element.isVisible === false 
+                            ? 'text-gray-600 cursor-not-allowed' 
+                            : `hover:bg-white/20 ${element.isLocked ? 'text-white' : 'text-gray-400'}`
+                    }`}
+                    title={element.isLocked ? t('layers.unlock') : t('layers.lock')}
+                    disabled={element.isVisible === false}
                 >
                     {element.isLocked ? 
                         <svg {...iconProps}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> : 
@@ -136,21 +155,64 @@ const LayerItem: React.FC<{
                     }
                 </button>
                 <button
-                    onClick={(e) => { e.stopPropagation(); onToggleVisibility(); }}
-                    className="p-1 rounded-full hover:bg-white/20 text-gray-400"
-                    title={element.isVisible === false ? "Show" : "Hide"}
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        // 当元素锁定时，隐藏按钮不可点击
+                        if (element.isLocked) return;
+                        onToggleVisibility(); 
+                    }}
+                    className={`p-1 rounded-full ${
+                        element.isLocked 
+                            ? 'text-gray-600 cursor-not-allowed' 
+                            : 'hover:bg-white/20 text-gray-400'
+                    }`}
+                    title={element.isVisible === false ? t('layers.show') : t('layers.hide')}
+                    disabled={element.isLocked}
                 >
                     {element.isVisible === false ? 
                         <svg {...iconProps}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg> : 
                         <svg {...iconProps}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     }
                 </button>
+                <button
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        // 当元素锁定或隐藏时，删除按钮不可点击
+                        if (element.isLocked || element.isVisible === false) return;
+                        onDelete(); 
+                    }}
+                    className={`p-1 rounded-full ${
+                        element.isLocked || element.isVisible === false
+                            ? 'text-gray-600 cursor-not-allowed'
+                            : 'hover:bg-red-500/20 text-gray-400 hover:text-red-400'
+                    }`}
+                    title={t('layers.delete')}
+                    disabled={element.isLocked || element.isVisible === false}
+                >
+                    <svg {...iconProps}>
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
             </div>
         </div>
     );
 };
 
-export const LayerPanel: React.FC<LayerPanelProps> = ({ isOpen, onClose, elements, selectedElementIds, onSelectElement, onToggleVisibility, onToggleLock, onRenameElement, onReorder }) => {
+export const LayerPanel: React.FC<LayerPanelProps> = ({ 
+    isOpen, 
+    onClose, 
+    elements, 
+    selectedElementIds, 
+    onSelectElement, 
+    onToggleVisibility, 
+    onToggleLock, 
+    onDeleteElement,
+    onRenameElement, 
+    onReorder,
+    language 
+}) => {
+    const { t } = useTranslation();
     const panelRef = useRef<HTMLDivElement>(null);
     const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -206,11 +268,13 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ isOpen, onClose, element
                             onSelect={() => onSelectElement(id)}
                             onToggleLock={() => onToggleLock(id)}
                             onToggleVisibility={() => onToggleVisibility(id)}
+                            onDelete={() => onDeleteElement(id)}
                             onRename={name => onRenameElement(id, name)}
                             onDragStart={e => handleDragStart(e, id)}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
                             onDrop={(e) => handleDrop(e, id)}
+                            language={language}
                         />
                     </div>
                     {childrenIds.length > 0 && renderLayers(childrenIds, level + 1)}
@@ -233,11 +297,13 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ isOpen, onClose, element
                             onSelect={() => onSelectElement(element.id)}
                             onToggleLock={() => onToggleLock(element.id)}
                             onToggleVisibility={() => onToggleVisibility(element.id)}
+                            onDelete={() => onDeleteElement(element.id)}
                             onRename={name => onRenameElement(element.id, name)}
                             onDragStart={e => handleDragStart(e, element.id)}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
                             onDrop={(e) => handleDrop(e, element.id)}
+                            language={language}
                         />
                      </div>
                     {renderOrderedLayers(elements, level + 1, element.id)}
@@ -255,7 +321,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ isOpen, onClose, element
             style={{ backgroundColor: 'var(--ui-bg-color)' }}
         >
             <div className="flex-shrink-0 flex justify-between items-center p-3 border-b border-white/10 cursor-move">
-                <h3 className="text-base font-semibold">Layers</h3>
+                <h3 className="text-base font-semibold">{t('layers.title')}</h3>
                 <button onClick={onClose} className="text-gray-400 hover:text-white p-1 rounded-full">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
