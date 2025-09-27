@@ -6,7 +6,9 @@
 
 <img width="1820" height="1024" alt="Group 343" src="https://github.com/hu675522/BananaPod/blob/2ec02f7173b4ce48ccb4bf39d83f54b56a8af0a7/%E4%BC%98%E5%8C%96%E7%95%8C%E9%9D%A22.png" />
 
-# BananaPod ｜ 香蕉铺子 ｜ 原作者：ZHO
+<img width="1820" height="1024" alt="Group 343" src="https://github.com/hu675522/BananaPod/blob/c9508e6d3ebb19b742eb7e19f17fc9c9f26084c8/%E4%BC%98%E5%8C%96%E7%95%8C%E9%9D%A23.png" />
+
+# BananaPod ｜ 原作者：ZHO ｜ 二次开发作者：Hutongxue_168
 
 </div>
 
